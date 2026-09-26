@@ -15,3 +15,13 @@ class PitchRequest(BaseModel):
 class ExportRequest(BaseModel):
     pitch: dict = Field(..., description="The pitch returned by /api/pitch")
     decisions: dict = Field(default_factory=dict, description="Advisor decisions per claim id (used from Phase 5)")
+
+
+class AuditRequest(BaseModel):
+    pitch: dict = Field(..., description="The pitch returned by /api/pitch")
+
+
+class ClaimAuditRequest(BaseModel):
+    pitch: dict = Field(..., description="The pitch the claim belongs to")
+    claim_id: str = Field(..., max_length=20, description="e.g. S3-2")
+    text: str = Field(..., max_length=600, description="The advisor's edited wording")

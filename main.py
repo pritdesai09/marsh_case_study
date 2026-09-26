@@ -1,4 +1,5 @@
 import logging
+import re
 from collections import Counter
 
 import requests
@@ -6,14 +7,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from src import config, fact_store, pitch, pptx_builder, profile
-from src.schemas import ExportRequest, PitchRequest, ProfileRequest
+from src import audit, config, fact_store, pitch, pptx_builder, profile
+from src.schemas import AuditRequest, ClaimAuditRequest, ExportRequest, PitchRequest, ProfileRequest
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 for noisy in ("httpx", "google_genai", "urllib3"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
-app = FastAPI(title="Marsh Pitch Generator", version="0.4.0")
+app = FastAPI(title="Marsh Pitch Generator", version="0.5.0")
 
 
 @app.get("/api/health")
@@ -103,6 +104,38 @@ def export_pptx(req: ExportRequest):
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+@app.post("/api/audit")
+def audit_pitch(req: AuditRequest):
+    """auditPitchContent: trace every claim to a policy clause; returns the structured audit report."""
+    try:
+        return audit.audit_pitch(req.pitch)
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"This pitch could not be audited: {e}")
+
+
+@app.post("/api/audit/claim")
+def audit_one_claim(req: ClaimAuditRequest):
+    """Re-audit a single claim after the advisor edits its wording."""
+    try:
+        return audit.audit_single_claim(req.pitch, req.claim_id, req.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+AUDIT_TYPES = {"html": "text/html", "csv": "text/csv", "json": "application/json"}
+
+
+@app.get("/api/audit/{audit_id}/report.{fmt}")
+def download_audit(audit_id: str, fmt: str):
+    """Download a saved audit report (the 'audit results' deliverable) as HTML, CSV or JSON."""
+    if not re.fullmatch(r"[0-9a-f]{10}", audit_id) or fmt not in AUDIT_TYPES:
+        raise HTTPException(status_code=404, detail="Report not found")
+    matches = sorted((config.OUTPUT_DIR / "audits").glob(f"*_{audit_id}.{fmt}"))
+    if not matches:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return FileResponse(matches[0], media_type=AUDIT_TYPES[fmt], filename=matches[0].name)
 
 
 # Website: "/" serves index.html; CSS/JS are served from /static
