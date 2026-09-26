@@ -1,3 +1,4 @@
+// Every call to the backend goes through this file.
 const API = {
   async request(path, options = {}) {
     let res;
@@ -16,4 +17,5 @@ const API = {
 
   health: () => API.request("/api/health"),
   policies: () => API.request("/api/policies"),
+  facts: (policy) => API.request(`/api/facts?policy=${encodeURIComponent(policy)}`),
 };

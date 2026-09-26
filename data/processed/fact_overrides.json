@@ -1,0 +1,64 @@
+{
+  "_comment": "Human review decisions, applied on every build/validate. Each was checked against the brochure PDF. Keys are exact fact_ids or keyword rules like match:POLICY:keyword.",
+
+  "HDFC-secure-benefit": {
+    "page": 11,
+    "quote": "Secure Benefit 100% of base sum insured",
+    "review_note": "Page 2 only says '2X coverage from Day 1'; the 100% wording is in the page 11 table"
+  },
+
+  "HDFC-aggregate-deductible-value-buy": {
+    "value": "Up to 65% discount on premium",
+    "conditions": "Customer opts to pay a yearly aggregate deductible (₹25,000 to ₹5,00,000); discount depends on deductible and sum insured",
+    "coverage_type": "optional",
+    "coverage_note": "Voluntary deductible chosen by the customer in exchange for a premium discount",
+    "quote": "You can choose from the below deductible options and enjoy up to 65% discount on your premium",
+    "reviewed": true,
+    "review_note": "Model merged intro and table; it is a voluntary choice, not included cover"
+  },
+
+  "ABHI-maternity-cover-domestic-activ-one-vip-p": {
+    "quote": "For BSI INR 50 Lacs and 75 Lacs - Domestic Maternity up to INR 1 Lac",
+    "conditions": "Base Sum Insured of INR 50 Lacs or 75 Lacs",
+    "review_note": "Model spliced two parts of the page with '...'; real wording is in the footnote"
+  },
+
+  "ABHI-maternity-cover-worldwide-activ-one-vip-": {
+    "quote": "For BSI INR 1 Cr and Above - WW Maternity up to of INR 2 Lacs",
+    "conditions": "Base Sum Insured of INR 1 Crore and above",
+    "review_note": "Quote copied from the footnote verbatim (including the brochure's 'up to of')"
+  },
+
+  "match:ABHI:chronic": {
+    "coverage_type": "plan_dependent",
+    "coverage_note": "Presented as a separate feature panel ('The Empowering One'); brochure footnote says benefits vary by plan and SI",
+    "reviewed": true,
+    "review_note": "Brochure does not state Day-1 chronic cover applies to all Activ One plans"
+  },
+
+  "match:ABHI:super reload": {
+    "coverage_type": "plan_dependent",
+    "coverage_note": "Presented as a separate feature panel ('The Fulfilling One'); brochure footnote says benefits vary by plan and SI",
+    "reviewed": true,
+    "review_note": "Brochure does not state Super Reload applies to all Activ One plans"
+  },
+
+  "match:ABHI:super credit": {
+    "coverage_type": "plan_dependent",
+    "coverage_note": "Presented as a separate feature panel ('The Accelerating One'); brochure footnote says benefits vary by plan and SI",
+    "reviewed": true,
+    "review_note": "Brochure does not state Super Credit applies to all Activ One plans"
+  },
+
+  "CARE-wellness-benefit-renewal-discount": {
+    "coverage_type": "optional",
+    "coverage_note": "Healthy days program under wellness benefit (optional cover) on payment of additional premium",
+    "reviewed": true,
+    "review_note": "Footnote marks the wellness benefit as an optional cover"
+  },
+
+  "CARE-pre-existing-diseases-waiting-period": {
+    "reviewed": true,
+    "review_note": "36-month wait is base; the flag came from the optional add-on that shortens it"
+  }
+}
