@@ -22,6 +22,29 @@
   </header>
 
   <main class="container">
+    <!-- Step 1: research the client -->
+    <section class="card">
+      <h2><span class="step">1</span> Research the client</h2>
+      <p class="muted">Type a company name. Facts come from Wikidata and Wikipedia; anything estimated is labelled as an assumption.</p>
+
+      <form id="company-form" class="search-row" autocomplete="off" novalidate>
+        <div class="search-box">
+          <input id="company-input" type="text" maxlength="100" placeholder="e.g. Infosys, Tata Steel, HDFC Bank"
+                 aria-label="Company name" aria-autocomplete="list" aria-controls="suggestions">
+          <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+        </div>
+        <button id="research-btn" type="submit" class="btn primary">Research</button>
+      </form>
+      <p id="company-error" class="error" hidden></p>
+
+      <div id="profile-loading" class="loading" hidden>
+        <span class="spinner"></span>
+        <span>Looking up Wikidata → reading Wikipedia → estimating workforce risks…</span>
+      </div>
+      <div id="profile-result" hidden></div>
+    </section>
+
+    <!-- Reference: verified policy facts -->
     <section class="card">
       <div class="card-head">
         <div>
