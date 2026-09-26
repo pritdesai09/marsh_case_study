@@ -107,13 +107,15 @@ def _get_entities(ids: list[str], props: str) -> dict:
 
 
 def _best_statement(claims: dict, prop: str):
-    """Preferred statement if any, else the most recent by 'point in time' (P585), else the first."""
+    """Most recent statement by 'point in time' (P585); if none are dated, the preferred one, else the first.
+
+    Wikidata sometimes marks an old figure as 'preferred' while newer, dated figures exist,
+    so the date wins over the rank.
+    """
     statements = [s for s in claims.get(prop, []) if s.get("rank") != "deprecated"
                   and s.get("mainsnak", {}).get("snaktype") == "value"]
     if not statements:
         return None
-    preferred = [s for s in statements if s.get("rank") == "preferred"]
-    pool = preferred or statements
 
     def when(s):
         quals = s.get("qualifiers", {}).get("P585", [])
@@ -121,7 +123,24 @@ def _best_statement(claims: dict, prop: str):
             return quals[0]["datavalue"]["value"]["time"]
         except (IndexError, KeyError):
             return ""
-    return max(pool, key=when)
+
+    dated = [s for s in statements if when(s)]
+    if dated:
+        return max(dated, key=lambda s: (when(s), s.get("rank") == "preferred"))
+    preferred = [s for s in statements if s.get("rank") == "preferred"]
+    return (preferred or statements)[0]
+
+
+STALE_AFTER_YEARS = 3
+
+
+def _as_of(year: str) -> str:
+    """' (as of 2024)', or a warning if the figure is old."""
+    if not year:
+        return ""
+    if int(year) < datetime.now().year - STALE_AFTER_YEARS:
+        return f" (as of {year}; latest on record, may be outdated)"
+    return f" (as of {year})"
 
 
 def _statement_year(statement) -> str:
@@ -172,7 +191,7 @@ def fetch_wikidata_facts(qid: str) -> dict:
     if employees:
         count = int(float(_value(employees)["amount"]))
         year = _statement_year(employees)
-        fields["employees"] = sourced(count, f"{count:,}" + (f" (as of {year})" if year else ""))
+        fields["employees"] = sourced(count, f"{count:,}{_as_of(year)}")
 
     if hq:
         fields["headquarters"] = sourced(labels.get(hq["id"], hq["id"]))
@@ -189,7 +208,7 @@ def fetch_wikidata_facts(qid: str) -> dict:
         unit_id = _value(revenue).get("unit", "").rsplit("/", 1)[-1]
         currency = CURRENCY_UNITS.get(unit_id, "")
         year = _statement_year(revenue)
-        fields["revenue"] = sourced(amount, f"{currency}{_human_amount(amount)}" + (f" ({year})" if year else ""))
+        fields["revenue"] = sourced(amount, f"{currency}{_human_amount(amount)}{_as_of(year)}")
 
     website = _value(_best_statement(claims, "P856"))
     if website:
@@ -273,9 +292,12 @@ def _ai_assumptions(name: str, fields: dict) -> dict:
                           "rationale": str(r.get("rationale", ""))[:300], "basis": "assumption"})
     if not risks:
         raise llm.LLMError("No valid risks returned")
+    risks.sort(key=lambda r: r["relevance"] != "high")  # high first, AI's order kept within each group
+    # The UI already prints "Based on:", so strip any repeats of it the model added
+    reason = re.sub(r"^(\s*based on[:\s]*)+", "", str(data.get("workforce_reason", "")), flags=re.IGNORECASE).strip()
     return {"industry_guess": str(data.get("industry_guess", "")).strip(),
             "workforce_profile": str(data.get("workforce_profile", "")).strip(),
-            "workforce_reason": str(data.get("workforce_reason", "")).strip(),
+            "workforce_reason": (reason[:1].upper() + reason[1:]).rstrip(".") if reason else "",
             "risks": risks[:5]}
 
 
