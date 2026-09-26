@@ -145,6 +145,134 @@ const UI = {
     el.hidden = false;
   },
 
+  // ---------------------------------------------------------------- step 2: pitch
+  renderPolicyPicks(policies) {
+    const usable = policies.filter(p => p.facts > 0);
+    document.getElementById("policy-picks").innerHTML = usable.length
+      ? usable.map(p => `
+          <label class="pick">
+            <input type="checkbox" name="policy" value="${UI.escape(p.code)}" checked>
+            <span>${UI.escape(p.name)} <span class="muted">· ${p.verified} verified facts</span></span>
+          </label>`).join("")
+      : `<p class="empty">No verified policy facts yet. Build the fact store first.</p>`;
+  },
+
+  selectedPolicies() {
+    return [...document.querySelectorAll('#policy-picks input[name="policy"]:checked')].map(i => i.value);
+  },
+
+  updateGenerateButton(hasProfile) {
+    const count = UI.selectedPolicies().length;
+    const btn = document.getElementById("generate-btn");
+    const hint = document.getElementById("generate-hint");
+    btn.disabled = !hasProfile || count === 0;
+    hint.textContent = !hasProfile ? "Research a company first."
+      : count === 0 ? "Select at least one policy."
+      : `Compares ${count} polic${count === 1 ? "y" : "ies"}. Uses one AI call.`;
+  },
+
+  setPitchError(message) {
+    const el = document.getElementById("pitch-error");
+    el.textContent = message || "";
+    el.hidden = !message;
+  },
+
+  setGenerating(busy) {
+    document.getElementById("generate-btn").disabled = busy;
+    document.querySelectorAll('#policy-picks input').forEach(i => { i.disabled = busy; });
+    UI.show("pitch-loading", busy);
+    if (busy) UI.show("pitch-result", false);
+  },
+
+  // One claim with its source(s). Uncited policy claims are highlighted in red.
+  claimHTML(c) {
+    const sources = (c.sources || []).map(s =>
+      `<span class="src" title="${UI.escape(s.quote ? `“${s.quote}”` : s.url || s.label)}">${UI.escape(s.label)}</span>`).join("");
+    const none = c.uncited ? `<span class="src none">No valid source</span>`
+      : (!sources && c.claim_type === "assumption" ? `<span class="src">Estimate</span>` : "");
+    return `<div class="claim ${c.uncited ? "uncited" : ""}" data-claim-id="${UI.escape(c.id || "")}">
+              ${UI.escape(c.text)} ${sources}${none}</div>`;
+  },
+
+  renderRanking(pitch) {
+    return pitch.ranking.map((p, i) => {
+      const rows = p.breakdown.map(b => `
+        <tr>
+          <td>${UI.escape(b.risk.split("(")[0])} <span class="pill ${b.relevance === "high" ? "missing" : "review"}">${b.relevance}</span></td>
+          <td>${b.facts.length
+            ? b.facts.map(f => `${UI.escape(f.benefit)} <span class="pill ${UI.escape(f.coverage_type)}">${UI.escape(UI.COVERAGE_LABELS[f.coverage_type] || f.coverage_type)}</span>`).join("<br>")
+            : `<span class="gap">No matching benefit in the brochure</span>`}</td>
+          <td style="text-align:right">${b.score}</td>
+        </tr>`).join("");
+      return `
+        <details class="rank-row ${i === 0 ? "best" : ""}">
+          <summary>
+            <span class="rank-name">${UI.escape(p.name)}${i === 0 ? `<span class="pill ok">Recommended</span>` : ""}</span>
+            <span class="bar"><span style="width:${p.score}%"></span></span>
+            <span class="rank-score">${p.score}</span>
+          </summary>
+          <div class="rank-detail"><table>${rows}</table></div>
+        </details>`;
+    }).join("");
+  },
+
+  renderSlide(s) {
+    let body = "";
+    if (s.type === "overview") {
+      const tiles = Object.entries(s.facts || {}).map(([k, v]) =>
+        `<div><b>${UI.escape(k)}</b>${UI.escape(v)}</div>`).join("");
+      body = `${tiles ? `<div class="mini-tiles">${tiles}</div>` : ""}${s.claims.map(UI.claimHTML).join("")}`;
+    } else if (s.type === "why_marsh") {
+      body = `<div class="marsh-grid">${s.claims.map(c => `<div>${UI.claimHTML(c)}</div>`).join("")}</div>`;
+    } else if (s.type === "risk_benefits") {
+      body = s.rows.length ? s.rows.map(r => `
+        <div class="risk-row">
+          <div class="risk-tag ${r.relevance}">${UI.escape(r.risk.split("(")[0])}</div>
+          <div>${UI.claimHTML(r.claim)}</div>
+        </div>`).join("") : `<p class="empty">No verified benefits matched these risks.</p>`;
+    } else if (s.type === "comparison") {
+      const t = s.table;
+      body = `<div class="compare"><table>
+        <thead><tr><th></th>${t.columns.map(c => `<th>${UI.escape(c.name)}</th>`).join("")}</tr></thead>
+        <tbody>
+          <tr class="score"><td>Fit score</td>${t.columns.map(c => `<td>${c.score} / 100</td>`).join("")}</tr>
+          ${t.rows.map(r => `<tr><td><strong>${UI.escape(r.label)}</strong></td>${r.cells.map(c =>
+            c.claim_type === "none" ? `<td class="none">${UI.escape(c.text)}</td>` : `<td>${UI.claimHTML(c)}</td>`).join("")}</tr>`).join("")}
+        </tbody></table></div>`;
+    } else if (s.type === "recommendation") {
+      body = `<div class="reco">
+          <div class="reco-score">Fit score<b>${s.score}</b>out of 100</div>
+          <div>${s.claims.map(UI.claimHTML).join("")}</div>
+        </div>
+        <div class="disclaimer">${UI.escape(s.disclaimer)}</div>`;
+    }
+    return `<div class="slide">
+        <div class="slide-head"><h4>${UI.escape(s.title)}</h4><span>Slide ${s.n} / 5</span></div>
+        <div class="slide-body">${body}</div>
+      </div>`;
+  },
+
+  renderPitch(pitch) {
+    const warnings = (pitch.warnings || []).map(w => `<div class="banner">⚠ ${UI.escape(w)}</div>`).join("");
+    const uncited = pitch.slides.flatMap(s => s.claims || []).filter(c => c.uncited).length;
+    const writer = pitch.generated_by === "templates" ? "templates (AI unavailable)" : `AI (${pitch.generated_by})`;
+    const el = document.getElementById("pitch-result");
+    el.innerHTML = `
+      <div class="pitch">
+        ${warnings}
+        <div class="section-label">Policy fit for ${UI.escape(pitch.company)} (click a row to see the working)</div>
+        ${UI.renderRanking(pitch)}
+        <div class="section-label">Slides</div>
+        ${uncited ? `<div class="banner">⚠ ${uncited} statement${uncited > 1 ? "s" : ""} had no valid source and ${uncited > 1 ? "are" : "is"} highlighted in red. The audit step will review them.</div>` : ""}
+        <div class="slides">${pitch.slides.map(UI.renderSlide).join("")}</div>
+        <div class="download-row">
+          <span class="muted">Written by ${UI.escape(writer)} · ${new Date(pitch.generated_at).toLocaleString()}</span>
+          <button id="download-btn" type="button" class="btn primary">Download PowerPoint</button>
+        </div>
+      </div>`;
+    el.hidden = false;
+  },
+
   // ---------------------------------------------------------------- knowledge base
   renderStoreDate(generatedAt) {
     document.getElementById("store-date").textContent = generatedAt

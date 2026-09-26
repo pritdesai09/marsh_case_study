@@ -3,17 +3,17 @@ from collections import Counter
 
 import requests
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from src import config, fact_store, profile
-from src.schemas import ProfileRequest
+from src import config, fact_store, pitch, pptx_builder, profile
+from src.schemas import ExportRequest, PitchRequest, ProfileRequest
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 for noisy in ("httpx", "google_genai", "urllib3"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
-app = FastAPI(title="Marsh Pitch Generator", version="0.3.0")
+app = FastAPI(title="Marsh Pitch Generator", version="0.4.0")
 
 
 @app.get("/api/health")
@@ -74,6 +74,35 @@ def create_profile(req: ProfileRequest):
         return profile.generate_company_profile(req.company, wikidata_id=req.wikidata_id)
     except profile.ProfileError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/pitch")
+def create_pitch(req: PitchRequest):
+    """generateMarketingPitch: score the selected policies and write the 5 slides."""
+    try:
+        return pitch.generate_marketing_pitch(req.profile, req.policies)
+    except pitch.PitchError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/export")
+def export_pptx(req: ExportRequest):
+    """Render the pitch as a PowerPoint file."""
+    if not isinstance(req.pitch.get("slides"), list) or not req.pitch.get("ranking"):
+        raise HTTPException(status_code=400, detail="Generate a pitch before downloading.")
+    try:
+        data = pptx_builder.build_pptx(req.pitch, req.decisions)
+    except (KeyError, TypeError, ValueError, StopIteration) as e:
+        logging.getLogger(__name__).exception("PPTX export failed")
+        raise HTTPException(status_code=400, detail=f"This pitch could not be turned into slides ({type(e).__name__}).")
+    name = pptx_builder.filename_for(req.pitch)
+    (config.OUTPUT_DIR / "pitches").mkdir(parents=True, exist_ok=True)
+    (config.OUTPUT_DIR / "pitches" / name).write_bytes(data)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 # Website: "/" serves index.html; CSS/JS are served from /static

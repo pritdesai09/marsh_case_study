@@ -44,6 +44,25 @@
       <div id="profile-result" hidden></div>
     </section>
 
+    <!-- Step 2: build the pitch -->
+    <section class="card">
+      <h2><span class="step">2</span> Build the pitch</h2>
+      <p class="muted">Choose the policies to compare. They are scored against the client's risks, and the best fit is recommended.</p>
+
+      <div id="policy-picks" class="policy-picks"></div>
+      <div class="action-row">
+        <button id="generate-btn" type="button" class="btn primary" disabled>Generate pitch</button>
+        <span id="generate-hint" class="muted">Research a company first.</span>
+      </div>
+      <p id="pitch-error" class="error" hidden></p>
+
+      <div id="pitch-loading" class="loading" hidden>
+        <span class="spinner"></span>
+        <span>Scoring policies → writing slides with verified facts → checking citations…</span>
+      </div>
+      <div id="pitch-result" hidden></div>
+    </section>
+
     <!-- Reference: verified policy facts -->
     <section class="card">
       <div class="card-head">

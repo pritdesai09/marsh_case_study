@@ -1,6 +1,7 @@
 // Page state and flow.
 const state = {
-  profile: null,        // the researched company profile (used by the pitch step in Phase 3)
+  profile: null,        // the researched company profile
+  pitch: null,          // the generated pitch
   suggestions: [],      // current autocomplete options
   activeSuggestion: -1, // keyboard-highlighted option
   pickedId: null,       // Wikidata id chosen from the suggestions, if any
@@ -78,10 +79,52 @@ async function researchCompany(company, wikidataId = null) {
   try {
     state.profile = await API.profile(name, wikidataId);
     UI.renderProfile(state.profile);
+    state.pitch = null;               // a new client means any old pitch no longer applies
+    UI.show("pitch-result", false);
   } catch (err) {
     UI.setCompanyError(err.message);
   } finally {
     UI.setResearching(false);
+    UI.updateGenerateButton(!!state.profile);
+  }
+}
+
+// ---------------------------------------------------------------- pitch
+async function generatePitch() {
+  const policies = UI.selectedPolicies();
+  if (!state.profile) return UI.setPitchError("Research a company first.");
+  if (!policies.length) return UI.setPitchError("Select at least one policy.");
+  UI.setPitchError("");
+  UI.setGenerating(true);
+  try {
+    state.pitch = await API.pitch(state.profile, policies);
+    UI.renderPitch(state.pitch);
+  } catch (err) {
+    UI.setPitchError(err.message);
+  } finally {
+    UI.setGenerating(false);
+    UI.updateGenerateButton(!!state.profile);
+  }
+}
+
+async function downloadDeck(button) {
+  if (!state.pitch) return;
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Preparing…";
+  try {
+    const { blob, filename } = await API.exportDeck(state.pitch);
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    UI.setPitchError(err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
   }
 }
 
@@ -137,6 +180,13 @@ async function init() {
     researchCompany(input.value, state.pickedId);
   });
 
+  document.getElementById("policy-picks").addEventListener("change", () => UI.updateGenerateButton(!!state.profile));
+  document.getElementById("generate-btn").addEventListener("click", generatePitch);
+  document.getElementById("pitch-result").addEventListener("click", (e) => {
+    const button = e.target.closest("#download-btn");
+    if (button) downloadDeck(button);
+  });
+
   document.getElementById("policy-list").addEventListener("click", (e) => {
     const button = e.target.closest(".policy-row");
     if (button && !button.disabled) togglePolicy(button.closest("li"));
@@ -146,6 +196,8 @@ async function init() {
     const [health, policies] = await Promise.all([API.health(), API.policies()]);
     UI.renderMode(health);
     UI.renderPolicies(policies);
+    UI.renderPolicyPicks(policies);
+    UI.updateGenerateButton(false);
     UI.renderStoreDate(health.fact_store_built_at);
   } catch (err) {
     UI.renderError(err.message);
