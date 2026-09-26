@@ -39,6 +39,17 @@ POLICY_NAMES = {
     "CARE": ["care supreme", "care health"],
     "ABHI": ["aditya birla", "activ one", "abhi"],
 }
+
+
+def _policy_names() -> dict:
+    """Built-in names plus the insurer and policy name of any uploaded brochure."""
+    names = dict(POLICY_NAMES)
+    for code, p in config.POLICIES.items():
+        if code not in names:
+            names[code] = [p["insurer"].lower(), p["name"].lower()]
+    return names
+
+
 # A sentence with no citation that still states coverage terms is really a policy claim
 POLICY_LANGUAGE = re.compile(
     r"₹|\binr\b|\blakhs?\b|\blacs?\b|\bcrores?\b|sum insured|room rent|waiting period|co-?pay|deductible|"
@@ -115,7 +126,7 @@ def _policy_checks(text: str, evidence: list[dict]) -> list[dict]:
                              if unqualified else "Coverage type is stated correctly"))
 
         cited_policies = {e["policy"] for e in facts}
-        named = {code for code, words in POLICY_NAMES.items() if any(w in lowered for w in words)}
+        named = {code for code, words in _policy_names().items() if any(w in lowered for w in words)}
         wrong = named - cited_policies
         checks.append(_check("attribution", "fail" if wrong else "pass",
                              (f"Names {', '.join(config.POLICIES[c]['name'] for c in wrong)} but cites "
@@ -447,16 +458,34 @@ def _safe(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", name or "pitch").strip("_")[:40]
 
 
+ADVISOR_LABELS = {"approve": "Approved", "reject": "Rejected"}
+
+
+def _advisor_note(report: dict, claim: dict) -> str:
+    """The advisor's action on a claim, for the report ('' if none)."""
+    review = report.get("review") or {}
+    parts = []
+    edit = (review.get("edits") or {}).get(claim["id"])
+    if edit:
+        parts.append(f"Edited {edit['at'][:16].replace('T', ' ')} (was: {edit['original_entry']['text']})")
+    decision = (review.get("decisions") or {}).get(claim["id"])
+    if decision:
+        parts.append(f"{ADVISOR_LABELS[decision['action']]} {decision['at'][:16].replace('T', ' ')}")
+    return "; ".join(parts)
+
+
 def report_csv(report: dict) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["claim_id", "slide", "status", "confidence", "claim", "reason", "sources", "evidence_quote", "checks"])
+    writer.writerow(["claim_id", "slide", "status", "confidence", "claim", "reason", "sources", "evidence_quote", "checks",
+                     "advisor"])
     for c in report["claims"]:
         writer.writerow([
             c["id"], c["slide"], c["status"].upper(), "" if c["confidence"] is None else c["confidence"], c["text"], c["reason"],
             "; ".join(e.get("source", "") for e in c["evidence"]),
             " | ".join(e.get("quote", "") for e in c["evidence"] if e.get("quote"))[:500],
             "; ".join(f"{k['name']}={k['result']}" for k in c["checks"]),
+            _advisor_note(report, c),
         ])
     return buffer.getvalue()
 
@@ -475,10 +504,21 @@ def report_html(report: dict) -> str:
             f"{' · ' + html.escape(e['fact_id']) if e.get('fact_id') else ''}"
             f"{'<br>“' + html.escape(e['quote']) + '”' if e.get('quote') else ''}</div>" for e in c["evidence"])
         checks = "".join(f"<li class='{k['result']}'>{html.escape(k['name'])}: {html.escape(k['detail'])}</li>" for k in c["checks"])
+        note = _advisor_note(report, c)
         rows.append(f"<tr><td>{html.escape(str(c['id']))}<br><small>Slide {c['slide']}</small></td>"
                     f"<td><span class='st' style='background:{bg};color:{fg}'>{c['status'].upper()}</span></td>"
-                    f"<td>{html.escape(c['text'])}<ul>{checks}</ul></td><td>{evidence or '<i>No evidence</i>'}</td></tr>")
+                    f"<td>{html.escape(c['text'])}<ul>{checks}</ul></td><td>{evidence or '<i>No evidence</i>'}</td>"
+                    f"<td>{html.escape(note) or '<small>—</small>'}</td></tr>")
     counts = s["counts"]
+    review = report.get("review") or {}
+    initial = report.get("initial_summary")
+    signoff = ""
+    if initial:
+        signoff += (f"<br>First audit: {initial['overall']} ({initial['grounding_score']}%), "
+                    f"{initial['counts']['fail']} fail, {initial['counts']['review']} review. Shown above: the deck after the advisor's "
+                    f"edits, with {s.get('rejected', 0)} rejected claim(s) left out.")
+    if review.get("exported_at"):
+        signoff += f"<br><b>Signed off and exported by the advisor at {review['exported_at'].replace('T', ' ')} UTC.</b>"
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Audit report: {html.escape(report.get('company') or '')}</title>
 <style>body{{font-family:Segoe UI,system-ui,sans-serif;color:#1A1F2B;margin:32px;max-width:1200px}}
 h1{{color:#002C77}} .sum{{display:flex;gap:24px;align-items:center;border:1px solid #DDE3EC;border-radius:10px;padding:16px;margin:16px 0}}
@@ -490,8 +530,8 @@ ul{{margin:6px 0 0 16px;color:#5F6B7A}} li.fail{{color:#C5221F}} li.review{{colo
 <p>Audit {report['audit_id']} of pitch {report.get('pitch_id')} · {report['generated_at']} · Auditor: {html.escape(str(report['auditor']))}<br>
 Policy documents: {', '.join(html.escape(p['name'] + ' (' + p['file'] + ')') for p in report['policies_audited'])}</p>
 <div class="sum"><div class="big">{s['overall']}</div><div><b>Grounding score {s['grounding_score']}%</b><br>{html.escape(s['headline'])}<br>
-Verified {counts['verified']} · Review {counts['review']} · Fail {counts['fail']} · Info {counts['info']}</div></div>
-<table><tr><th>Claim</th><th>Status</th><th>Statement and checks</th><th>Traced to</th></tr>{''.join(rows)}</table>
+Verified {counts['verified']} · Review {counts['review']} · Fail {counts['fail']} · Info {counts['info']}{signoff}</div></div>
+<table><tr><th>Claim</th><th>Status</th><th>Statement and checks</th><th>Traced to</th><th>Advisor</th></tr>{''.join(rows)}</table>
 <h3>How the advisor uses this report</h3><ul>{''.join('<li>' + html.escape(g) + '</li>' for g in report['advisor_guidance'])}</ul>
 </body></html>"""
 

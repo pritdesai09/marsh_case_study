@@ -15,65 +15,94 @@
       <span class="logo">M</span>
       <div>
         <h1>Pitch Generator</h1>
-        <p>AI-generated, audit-verified insurance pitches</p>
+        <p>AI-written, audit-verified insurance pitches</p>
       </div>
     </div>
-    <span id="mode-badge" class="badge">Connecting…</span>
+    <div class="topbar-right">
+      <button id="library-btn" type="button" class="btn ghost">Policy library</button>
+      <span id="mode-badge" class="badge">Connecting…</span>
+    </div>
   </header>
 
   <main class="container">
-    <!-- Step 1: research the client -->
-    <section class="card">
-      <h2><span class="step">1</span> Research the client</h2>
-      <p class="muted">Type a company name. Facts come from Wikidata and Wikipedia; anything estimated is labelled as an assumption.</p>
+    <!-- The whole input: company + policies + generate -->
+    <section class="card" id="new-pitch">
+      <h2>New pitch</h2>
+      <p class="muted">Enter the client and choose the policy brochures to compare. The app researches the company,
+        writes a 5-slide pitch using only verified brochure facts, and audits every claim before you can download it.</p>
 
-      <form id="company-form" class="search-row" autocomplete="off" novalidate>
+      <form id="pitch-form" autocomplete="off" novalidate>
+        <label class="field-label" for="company-input">Client company</label>
         <div class="search-box">
           <input id="company-input" type="text" maxlength="100" placeholder="e.g. Infosys, Tata Steel, HDFC Bank"
-                 aria-label="Company name" aria-autocomplete="list" aria-controls="suggestions">
+                 aria-autocomplete="list" aria-controls="suggestions">
           <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
         </div>
-        <button id="research-btn" type="submit" class="btn primary">Research</button>
-      </form>
-      <p id="company-error" class="error" hidden></p>
 
-      <div id="profile-loading" class="loading" hidden>
-        <span class="spinner"></span>
-        <span>Looking up Wikidata → reading Wikipedia → estimating workforce risks…</span>
-      </div>
-      <div id="profile-result" hidden></div>
-    </section>
+        <div class="field-label">Policy documents <span class="muted">(choose up to 4)</span></div>
+        <div id="policy-picks" class="policy-picks"><p class="empty">Loading policies…</p></div>
 
-    <!-- Step 2: build the pitch -->
-    <section class="card">
-      <h2><span class="step">2</span> Build the pitch</h2>
-      <p class="muted">Choose the policies to compare. They are scored against the client's risks, and the best fit is recommended.</p>
-
-      <div id="policy-picks" class="policy-picks"></div>
-      <div class="action-row">
-        <button id="generate-btn" type="button" class="btn primary" disabled>Generate pitch</button>
-        <span id="generate-hint" class="muted">Research a company first.</span>
-      </div>
-      <p id="pitch-error" class="error" hidden></p>
-
-      <div id="pitch-loading" class="loading" hidden>
-        <span class="spinner"></span>
-        <span>Scoring policies → writing slides with verified facts → checking citations…</span>
-      </div>
-      <div id="pitch-result" hidden></div>
-    </section>
-
-    <!-- Reference: verified policy facts -->
-    <section class="card">
-      <div class="card-head">
-        <div>
-          <h2>Policy knowledge base</h2>
-          <p class="muted">Every benefit the pitch can use, traced to a quote and page in the brochure. Click a policy to inspect its facts.</p>
+        <button id="upload-toggle" type="button" class="btn link">+ Upload a policy brochure (PDF)</button>
+        <div id="upload-panel" class="upload-panel" hidden>
+          <div class="upload-grid">
+            <label>PDF brochure<input id="upload-file" type="file" accept="application/pdf,.pdf"></label>
+            <label>Policy name<input id="upload-name" type="text" maxlength="80" placeholder="e.g. Star Comprehensive"></label>
+            <label>Insurer<input id="upload-insurer" type="text" maxlength="60" placeholder="e.g. Star Health"></label>
+          </div>
+          <p class="muted small-text">The AI reads the brochure and extracts its benefits; each one is then checked against the PDF text.
+            Takes 1–2 minutes and uses one AI call. Max 15 MB, 40 pages.</p>
+          <div class="upload-actions">
+            <button id="upload-btn" type="button" class="btn primary">Upload and read</button>
+            <button id="upload-cancel" type="button" class="btn">Cancel</button>
+          </div>
+          <p id="upload-error" class="error" hidden></p>
         </div>
-        <span id="store-date" class="muted small"></span>
+
+        <p id="form-error" class="error" hidden></p>
+        <button id="generate-btn" type="submit" class="btn primary big">Generate pitch</button>
+      </form>
+
+      <ol id="progress" class="progress" hidden>
+        <li data-step="profile"><span class="dot"></span><div><b>Research the company</b><small>Wikidata and Wikipedia facts, estimated workforce risks</small></div></li>
+        <li data-step="pitch"><span class="dot"></span><div><b>Write the pitch</b><small>Score the policies, write 5 slides citing brochure facts</small></div></li>
+        <li data-step="audit"><span class="dot"></span><div><b>Audit every claim</b><small>Trace each statement to a policy clause</small></div></li>
+      </ol>
+    </section>
+
+    <!-- Result: summary header + tabs -->
+    <section id="result" hidden>
+      <div id="result-head" class="card result-head"></div>
+
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="slides" aria-selected="true">Slides</button>
+        <button type="button" role="tab" data-tab="audit" aria-selected="false">Audit report</button>
+        <button type="button" role="tab" data-tab="profile" aria-selected="false">Company profile</button>
+        <button type="button" role="tab" data-tab="ranking" aria-selected="false">Why this policy</button>
       </div>
-      <ul id="policy-list" class="policy-list"></ul>
+
+      <div id="tab-slides" class="tab-panel" role="tabpanel">
+        <div class="review-layout">
+          <div id="slides" class="slides"></div>
+          <aside id="inspector" class="inspector card"></aside>
+        </div>
+      </div>
+      <div id="tab-audit" class="tab-panel card" role="tabpanel" hidden></div>
+      <div id="tab-profile" class="tab-panel card" role="tabpanel" hidden></div>
+      <div id="tab-ranking" class="tab-panel card" role="tabpanel" hidden></div>
     </section>
   </main>
+
+  <!-- Policy library: every verified fact, with its brochure quote -->
+  <dialog id="library" class="library">
+    <div class="card-head">
+      <div>
+        <h2>Policy library</h2>
+        <p class="muted">Every benefit the pitch can use, traced to a quote and page in the brochure.</p>
+      </div>
+      <button id="library-close" type="button" class="btn" aria-label="Close">Close</button>
+    </div>
+    <p id="store-date" class="muted small-text"></p>
+    <ul id="policy-list" class="policy-list"></ul>
+  </dialog>
 </body>
 </html>

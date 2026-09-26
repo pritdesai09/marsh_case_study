@@ -110,20 +110,29 @@ def _frame(prs, pitch, n, title, subtitle=""):
         _text(slide, MARGIN, Inches(0.72), W - 2 * MARGIN, Inches(0.35), subtitle, 12, RGBColor(0xC9, 0xD6, 0xEE))
     _box(slide, MARGIN, H - Inches(0.55), W - 2 * MARGIN, Pt(1), fill=BORDER)
     _text(slide, MARGIN, H - Inches(0.5), Inches(8), Inches(0.35),
-          f"Marsh | Prepared for {pitch['company']} | Draft for advisor review", 9, MUTED)
+          f"Marsh | Prepared for {pitch['company']} | {pitch.get('_footer_note') or 'Draft for advisor review'}", 9, MUTED)
     _text(slide, W - MARGIN - Inches(1.5), H - Inches(0.5), Inches(1.5), Inches(0.35),
           f"{n} / {TOTAL_SLIDES}", 9, MUTED, align=PP_ALIGN.RIGHT)
     return slide
 
 
 def _active(claims, decisions):
-    """Drop claims the advisor rejected; use edited text where given."""
+    """Drop claims the advisor rejected; use edited text where given.
+
+    Approved claims lose the red "no valid source" warning, and take the brochure source the audit
+    traced them to when the pitch didn't cite one.
+    """
     result = []
     for c in claims or []:
         d = (decisions or {}).get(c.get("id"), {})
         if d.get("status") == "rejected":
             continue
-        result.append({**c, "text": d.get("text") or c["text"]})
+        claim = {**c, "text": d.get("text") or c["text"]}
+        if d.get("approved"):
+            claim["uncited"] = False
+            if d.get("sources"):
+                claim["sources"] = d["sources"]
+        result.append(claim)
     return result
 
 
@@ -271,8 +280,13 @@ RENDERERS = {"overview": _overview, "why_marsh": _why_marsh, "risk_benefits": _r
              "comparison": _comparison, "recommendation": _recommendation}
 
 
-def build_pptx(pitch: dict, decisions: dict | None = None) -> bytes:
-    """Return the deck as .pptx bytes. decisions: {claim_id: {"status": "rejected"|..., "text": edited}}."""
+def build_pptx(pitch: dict, decisions: dict | None = None, footer_note: str | None = None) -> bytes:
+    """Return the deck as .pptx bytes.
+
+    decisions: {claim_id: {"status": "rejected", "text": edited, "approved": True, "sources": [...]}}
+    footer_note: replaces "Draft for advisor review" once the advisor has signed off.
+    """
+    pitch = {**pitch, "_footer_note": footer_note}
     prs = Presentation()
     prs.slide_width, prs.slide_height = W, H
     for s in pitch["slides"]:

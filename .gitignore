@@ -5,3 +5,6 @@ __pycache__/
 outputs/*
 !outputs/.gitkeep
 .vscode/
+outputs/
+data/policies/upload_*.pdf
+data/processed/uploaded_policies.json

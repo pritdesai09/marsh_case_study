@@ -1,4 +1,6 @@
 """Request bodies for the API. FastAPI validates these automatically (bad input -> 422)."""
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -12,16 +14,14 @@ class PitchRequest(BaseModel):
     policies: list[str] = Field(default_factory=list, max_length=4, description="Policy codes, e.g. ['HDFC', 'NIVA']")
 
 
-class ExportRequest(BaseModel):
-    pitch: dict = Field(..., description="The pitch returned by /api/pitch")
-    decisions: dict = Field(default_factory=dict, description="Advisor decisions per claim id (used from Phase 5)")
-
-
 class AuditRequest(BaseModel):
-    pitch: dict = Field(..., description="The pitch returned by /api/pitch")
+    pitch_id: str = Field(..., max_length=20, description="The id of a pitch returned by /api/pitch")
 
 
-class ClaimAuditRequest(BaseModel):
-    pitch: dict = Field(..., description="The pitch the claim belongs to")
-    claim_id: str = Field(..., max_length=20, description="e.g. S3-2")
-    text: str = Field(..., max_length=600, description="The advisor's edited wording")
+class ClaimActionRequest(BaseModel):
+    action: Literal["approve", "reject", "reset", "edit", "revert"]
+    text: str | None = Field(None, max_length=600, description="New wording (only for action='edit')")
+
+
+class ExportRequest(BaseModel):
+    audit_id: str = Field(..., max_length=20, description="The audit whose approved claims go into the deck")
