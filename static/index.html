@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marsh Pitch Generator</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="/static/js/api.js" defer></script>
+  <script src="/static/js/ui.js" defer></script>
+  <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">M</span>
+      <div>
+        <h1>Pitch Generator</h1>
+        <p>AI-generated, audit-verified insurance pitches</p>
+      </div>
+    </div>
+    <span id="mode-badge" class="badge">Connecting…</span>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>Environment check</h2>
+      <p class="muted">Confirms the server is running and all policy documents are in place.</p>
+      <ul id="policy-list" class="status-list"></ul>
+    </section>
+  </main>
+</body>
+</html>
