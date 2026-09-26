@@ -382,7 +382,7 @@ def generate_company_profile(name: str, wikidata_id: str | None = None, use_ai: 
 
     return {
         "company": name,
-        "resolved_name": found["label"] if found else name,
+        "resolved_name": (found.get("enwiki_title") or found["label"]) if found else name,
         "description": found["description"] if found else "",
         "wikidata_id": (wikidata_id or (found and found["wikidata_url"].rsplit("/", 1)[-1])) or None,
         "wikidata_url": found["wikidata_url"] if found else None,

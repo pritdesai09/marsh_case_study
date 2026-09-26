@@ -22,23 +22,35 @@ log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- scoring
 
-# Which kinds of benefit answer each workforce risk (fact categories + keywords in the benefit text).
+# Which benefits answer each workforce risk.
+#   strong: the benefit clearly addresses the risk (counts fully)
+#   weak:   loosely related, e.g. general e-consultations for stress (counts 60%)
+# Keywords are matched in the benefit NAME first; categories are a fallback.
 RISK_NEEDS = {
-    "sedentary_lifestyle": (["chronic_care", "wellness_checkup", "opd_consultation"],
-                            ["chronic", "diabet", "health check", "wellness", "consult", "healthreturns"]),
-    "chronic_conditions": (["chronic_care"], ["chronic", "pre-existing", "day 1", "ped wait"]),
-    "young_families": (["maternity"], ["maternity", "newborn", "ivf", "parenthood"]),
-    "dependent_parents": (["eligibility", "daily_cash"], ["entry age", "parents", "pre-existing", "ped wait"]),
-    "occupational_injury": (["hospitalisation", "ambulance", "personal_accident", "restore_recharge"],
-                            ["accident", "ambulance", "restore", "recharge", "reload", "reassure"]),
-    "shift_work_fatigue": (["chronic_care", "wellness_checkup", "daily_cash"], ["check-up", "checkup", "wellness", "chronic"]),
-    "mental_health_stress": (["opd_consultation"], ["mental", "psychiatr", "counsel", "consult"]),
-    "frequent_travel": (["international"], ["abroad", "global", "international", "worldwide", "air ambulance"]),
-    "dispersed_workforce": (["ambulance"], ["cashless", "network", "e-consult", "domiciliary", "home care"]),
-    "medical_inflation": (["bonus", "restore_recharge"],
-                          ["inflation", "cpi", "bonus", "credit", "infinite", "secure benefit", "booster",
-                           "restore", "reload", "recharge", "reassure"]),
+    "sedentary_lifestyle": {"strong": ["chronic", "diabet", "health check", "check-up", "checkup", "healthreturns"],
+                            "strong_cats": ["chronic_care", "wellness_checkup"],
+                            "weak": ["consult", "wellness", "fitness"], "weak_cats": ["opd_consultation"]},
+    "chronic_conditions": {"strong": ["chronic", "day 1", "pre-existing", "ped"], "strong_cats": ["chronic_care"],
+                           "weak": ["consult"], "weak_cats": ["opd_consultation"]},
+    "young_families": {"strong": ["maternity", "newborn", "ivf", "parenthood"], "strong_cats": ["maternity"],
+                       "weak": ["family floater", "floater"], "weak_cats": []},
+    "dependent_parents": {"strong": ["entry age", "parents", "pre-existing", "ped"], "strong_cats": [],
+                          "weak": ["exit age", "senior"], "weak_cats": []},
+    "occupational_injury": {"strong": ["accident", "ambulance", "trauma"], "strong_cats": ["personal_accident", "ambulance"],
+                            "weak": ["restore", "recharge", "reload", "reassure"], "weak_cats": ["hospitalisation", "restore_recharge"]},
+    "shift_work_fatigue": {"strong": ["health check", "check-up", "checkup", "chronic"], "strong_cats": ["wellness_checkup", "chronic_care"],
+                           "weak": ["wellness", "hospital cash", "daily cash"], "weak_cats": ["daily_cash"]},
+    "mental_health_stress": {"strong": ["mental", "psychiatr", "counsel"], "strong_cats": [],
+                             "weak": ["consult", "wellness"], "weak_cats": ["opd_consultation"]},
+    "frequent_travel": {"strong": ["abroad", "global", "international", "worldwide", "air ambulance"],
+                        "strong_cats": ["international"], "weak": ["ambulance"], "weak_cats": []},
+    "dispersed_workforce": {"strong": ["cashless", "network", "e-consult", "domiciliary", "home care"], "strong_cats": [],
+                            "weak": ["ambulance"], "weak_cats": ["ambulance"]},
+    "medical_inflation": {"strong": ["inflation", "cpi", "credit", "infinite", "secure benefit", "bonus", "booster",
+                                     "restore", "recharge", "reload", "reassure"],
+                          "strong_cats": ["bonus", "restore_recharge"], "weak": [], "weak_cats": ["sum_insured"]},
 }
+MATCH_QUALITY = {"strong": 1.0, "weak": 0.6}
 # A waiting period is a restriction, so it only counts when the brochure shortens or removes it
 SHORT_WAIT = re.compile(r"zero|day 1|no waiting|waived|reduced|modified to|1 or 2 year", re.IGNORECASE)
 
@@ -66,21 +78,40 @@ def _mentions(text: str, keywords: list[str]) -> bool:
     return any(re.search(r"(?<![a-z])" + re.escape(k), text) for k in keywords)
 
 
+def _match_quality(risk_id: str, f: dict) -> str | None:
+    """'strong', 'weak' or None: how directly this fact answers the risk."""
+    need = RISK_NEEDS.get(risk_id)
+    if not need:
+        return None
+    name = f["benefit"].lower()
+    text = f"{f['benefit']} {f['value']}".lower()
+    if f["category"] == "waiting_period" and not SHORT_WAIT.search(f"{text} {f.get('quote', '')}".lower()):
+        return None
+    if _mentions(name, need["strong"]) or f["category"] in need["strong_cats"]:
+        return "strong"
+    if _mentions(text, need["strong"]) or _mentions(name, need["weak"]) or f["category"] in need["weak_cats"]:
+        return "weak"
+    return None
+
+
+def _fact_strength(risk_id: str, f: dict) -> float:
+    quality = _match_quality(risk_id, f)
+    return COVERAGE_WEIGHT.get(f["coverage_type"], 0) * MATCH_QUALITY[quality] if quality else 0.0
+
+
 def facts_for_risk(risk_id: str, facts: list[dict]) -> list[dict]:
-    categories, keywords = RISK_NEEDS.get(risk_id, ([], []))
-    matched = []
-    for f in facts:
-        text = f"{f['benefit']} {f['value']} {f.get('quote', '')}".lower()
-        if f["category"] == "waiting_period" and not SHORT_WAIT.search(text):
-            continue
-        if f["category"] in categories or _mentions(text, keywords):
-            matched.append(f)
-    # Included benefits first, then by how strongly they count
-    return sorted(matched, key=lambda f: -COVERAGE_WEIGHT.get(f["coverage_type"], 0))
+    """Facts that answer the risk, strongest first."""
+    scored = [(f, _fact_strength(risk_id, f)) for f in facts]
+    return [f for f, w in sorted(scored, key=lambda x: -x[1]) if w > 0]
 
 
 def score_policies(profile: dict, codes: list[str]) -> list[dict]:
-    """Rank the selected policies against the company's risks. Returns best first, with the working shown."""
+    """Rank the selected policies against the company's risks. Returns best first, with the working shown.
+
+    Per risk: the strongest benefit counts fully and the next adds a quarter, capped at 1.0.
+    So 100/100 needs an included, directly relevant benefit for every risk; weak or
+    optional matches can't add up to a perfect score.
+    """
     facts = usable_facts(codes)
     risks = profile.get("risks") or []
     total_weight = sum(RELEVANCE_WEIGHT.get(r["relevance"], 1) for r in risks) or 1
@@ -90,15 +121,15 @@ def score_policies(profile: dict, codes: list[str]) -> list[dict]:
         breakdown, points = [], 0.0
         for r in risks:
             matched = facts_for_risk(r["id"], policy_facts)
-            weights = [COVERAGE_WEIGHT.get(f["coverage_type"], 0) for f in matched]
-            # Best benefit counts fully, the second adds half: breadth helps, but can't swamp quality
-            strength = min(1.0, (weights[0] + 0.5 * weights[1]) / 1.5 if len(weights) > 1 else (weights[0] / 1.5 if weights else 0))
+            weights = [_fact_strength(r["id"], f) for f in matched]
+            strength = min(1.0, (weights[0] + 0.25 * weights[1]) if len(weights) > 1 else (weights[0] if weights else 0.0))
             points += RELEVANCE_WEIGHT.get(r["relevance"], 1) * strength
             breakdown.append({
                 "risk_id": r["id"], "risk": r["label"], "relevance": r["relevance"],
                 "score": round(strength * 100),
                 "facts": [{"fact_id": f["fact_id"], "benefit": f["benefit"], "value": f["value"],
-                           "coverage_type": f["coverage_type"], "page": f["page"]} for f in matched[:3]],
+                           "coverage_type": f["coverage_type"], "page": f["page"],
+                           "match": _match_quality(r["id"], f)} for f in matched[:3]],
             })
         ranking.append({
             "code": code,
@@ -115,36 +146,49 @@ def score_policies(profile: dict, codes: list[str]) -> list[dict]:
 
 # ---------------------------------------------------------------- comparison table (code-built)
 
+# (row label, words the benefit NAME must contain, words that rule a fact out)
 COMPARISON_ROWS = [
-    ("Room rent", ["room_icu"], ["room rent"]),
-    ("Restore / recharge", ["restore_recharge"], ["restore", "recharge", "reload", "reassure"]),
-    ("Sum insured growth", ["bonus"], ["bonus", "credit", "infinite"]),
-    ("Air ambulance", [], ["air ambulance"]),
-    ("Maternity", ["maternity"], ["maternity"]),
-    ("Chronic conditions", ["chronic_care"], ["chronic"]),
-    ("Pre-existing disease wait", [], ["pre-existing"]),
+    ("Room rent", ["room rent", "room category", "room"], ["cash", "shared room"]),
+    ("Restore / recharge", ["restore", "recharge", "reload", "reassure", "reinstat"], []),
+    ("Sum insured growth", ["bonus", "credit", "infinite", "booster", "inflation", "cpi"], []),
+    ("Air ambulance", ["air ambulance", "air"], ["road"]),
+    ("Maternity", ["maternity", "parenthood"], []),
+    ("Chronic conditions", ["chronic"], []),
+    ("Pre-existing disease wait", ["pre-existing", "ped"], ["modification", "modify"]),
 ]
+CELL_MAX_CHARS = 75  # the slide shows a shortened value; the full text stays in the claim for the audit
 
 
-def _cell_fact(policy_facts: list[dict], categories: list[str], keywords: list[str]) -> dict | None:
+def _cell_fact(policy_facts: list[dict], include: list[str], exclude: list[str]) -> dict | None:
+    """Best fact for a comparison cell, matched on the benefit NAME (categories can be wrong)."""
     matches = [f for f in policy_facts
-               if f["category"] in categories or any(k in f["benefit"].lower() for k in keywords)]
+               if _mentions(f["benefit"].lower(), include) and not _mentions(f["benefit"].lower(), exclude)]
     if not matches:
         return None
-    return sorted(matches, key=lambda f: -COVERAGE_WEIGHT.get(f["coverage_type"], 0))[0]
+    # Included first, then the shortest (most table-friendly) value
+    return sorted(matches, key=lambda f: (-COVERAGE_WEIGHT.get(f["coverage_type"], 0), len(f["value"])))[0]
+
+
+def _shorten(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(",;:")
+    return cut + "…"
 
 
 def build_comparison(ranking: list[dict], facts: list[dict]) -> dict:
     columns = [{"code": p["code"], "name": p["name"], "score": p["score"]} for p in ranking]
     rows = []
-    for label, categories, keywords in COMPARISON_ROWS:
+    for label, include, exclude in COMPARISON_ROWS:
         cells = []
         for p in ranking:
-            f = _cell_fact([x for x in facts if x["policy"] == p["code"]], categories, keywords)
+            f = _cell_fact([x for x in facts if x["policy"] == p["code"]], include, exclude)
             if f:
                 qualifier = QUALIFIER.get(f["coverage_type"])
-                cells.append(_claim(f"{f['value']}" + (f" ({qualifier})" if qualifier else ""),
-                                    "policy", fact_ids=[f["fact_id"]], facts=facts))
+                suffix = f" ({qualifier})" if qualifier else ""
+                claim = _claim(f"{f['value']}{suffix}", "policy", fact_ids=[f["fact_id"]], facts=facts)
+                claim["short_text"] = _shorten(f["value"], CELL_MAX_CHARS) + suffix  # qualifier is never cut off
+                cells.append(claim)
             else:
                 cells.append({"text": "Not stated in brochure", "claim_type": "none"})
         if any(c["claim_type"] != "none" for c in cells):

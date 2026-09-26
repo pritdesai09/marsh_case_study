@@ -78,6 +78,8 @@ def _sources_text(claim) -> str:
         return "Source: " + "; ".join(labels)
     if claim.get("claim_type") == "assumption":
         return "Estimate based on the company profile"
+    if claim.get("claim_type") == "company":
+        return "Source: company profile"
     return ""
 
 
@@ -89,6 +91,8 @@ def _claim_paragraphs(tf, claims, size=14, first=True, bullet="•"):
         p.space_before = Pt(8)
         _set_run(p, f"{bullet} " if bullet else "", size, NAVY, bold=True)
         _set_run(p, claim["text"], size, TEXT)
+        if claim.get("uncited"):
+            _set_run(p, "  [NO VALID SOURCE: fix or remove before sending]", 10, RED, bold=True)
         source = _sources_text(claim)
         if source:
             sp = tf.add_paragraph()
@@ -199,9 +203,12 @@ def _comparison(prs, pitch, s, decisions):
     cols = table["columns"]
     decided = {c["id"]: c for c in _active(s.get("claims", []), decisions)}
     n_rows, n_cols = len(table["rows"]) + 2, len(cols) + 1
-    shape = slide.shapes.add_table(n_rows, n_cols, MARGIN, Inches(1.4), W - 2 * MARGIN, Inches(0.5) * n_rows)
+    row_h = min(Inches(0.55), int((H - Inches(1.35) - Inches(1.15)) / n_rows))
+    shape = slide.shapes.add_table(n_rows, n_cols, MARGIN, Inches(1.3), W - 2 * MARGIN, row_h * n_rows)
     t = shape.table
     t.columns[0].width = Inches(2.4)
+    for r in t.rows:
+        r.height = row_h
     for j in range(1, n_cols):
         t.columns[j].width = int((W - 2 * MARGIN - Inches(2.4)) / len(cols))
 
@@ -210,6 +217,7 @@ def _comparison(prs, pitch, s, decisions):
         c.fill.solid()
         c.fill.fore_color.rgb = fill
         c.margin_left = c.margin_right = Inches(0.08)
+        c.margin_top = c.margin_bottom = Inches(0.03)
         c.vertical_anchor = MSO_ANCHOR.MIDDLE
         tf = c.text_frame
         tf.word_wrap = True
@@ -231,10 +239,12 @@ def _comparison(prs, pitch, s, decisions):
             elif c["id"] not in decided:
                 cell(i, j, "—", 10, MUTED)  # rejected by the advisor
             else:
-                cell(i, j, decided[c["id"]]["text"], 10, TEXT)
+                d = decided[c["id"]]
+                edited = (decisions or {}).get(c["id"], {}).get("text")
+                cell(i, j, edited or d.get("short_text") or d["text"], 9, TEXT)
     sources = sorted({src["label"] for c in decided.values() for src in c.get("sources", [])})
-    _text(slide, MARGIN, H - Inches(1.0), W - 2 * MARGIN, Inches(0.4),
-          "Sources: " + "; ".join(sources) + ". Fit score: Marsh scoring of benefits against this workforce's risks.", 9, MUTED)
+    _text(slide, MARGIN, H - Inches(0.95), W - 2 * MARGIN, Inches(0.4),
+          "Sources: " + "; ".join(sources) + ". Fit score: Marsh scoring of benefits against this workforce's risks.", 8, MUTED)
 
 
 def _recommendation(prs, pitch, s, decisions):
