@@ -91,6 +91,30 @@ def _numbers_in(text: str) -> set[float]:
     return extract_numbers(re.sub(r"\bS\d+-\d+\b", " ", text))
 
 
+def _missing_numbers(text: str, pool: set[float]) -> list[float]:
+    """Amounts in the sentence that the evidence doesn't contain.
+
+    "5 lakh" counts as found if the evidence has 5 lakh in any form (500000, "5 Lacs"), so
+    rewriting 5,00,000 as 5 lakh is not an error.
+    """
+    text = re.sub(r"\bS\d+-\d+\b", " ", text)
+    for p in config.POLICIES.values():  # "ReAssure 2.0" is a product name, not an amount
+        text = re.sub(re.escape(p["name"]), " ", text, flags=re.IGNORECASE)
+    missing = []
+    for word, n in fact_store._NUMBER_WORDS.items():
+        if re.search(rf"\b{word}\b", text, re.I) and float(n) not in pool:
+            missing.append(float(n))
+    for digits, unit in fact_store._NUMBER.findall(text):
+        try:
+            n = float(digits.replace(",", ""))
+        except ValueError:
+            continue
+        forms = {n, n * fact_store._MULTIPLIER[unit.lower()]} if unit else {n}
+        if not forms & pool:
+            missing.append(max(forms))
+    return sorted(set(missing))
+
+
 # ---------------------------------------------------------------- code checks
 
 def _check(name: str, result: str, detail: str) -> dict:
@@ -112,7 +136,7 @@ def _policy_checks(text: str, evidence: list[dict]) -> list[dict]:
         pool = set()
         for e in facts:
             pool |= extract_numbers(" ".join([e["benefit"], e["value"], e["conditions"], e["quote"]]))
-        missing = sorted(n for n in _numbers_in(text) if n not in pool)
+        missing = _missing_numbers(text, pool)
         checks.append(_check("numbers", "fail" if missing else "pass",
                              ("Not in the cited clause: " + ", ".join(f"{n:g}" for n in missing)) if missing
                              else "Every number matches the cited clause"))
@@ -152,7 +176,7 @@ def _company_checks(text: str, claim: dict, profile: dict) -> tuple[list[dict], 
     pool = set()
     for k in cited:
         pool |= extract_numbers(str(fields[k].get("display", "")))
-    missing = sorted(n for n in _numbers_in(text) if n not in pool)
+    missing = _missing_numbers(text, pool)
     checks.append(_check("numbers", "fail" if missing else "pass",
                          ("Not in the cited company data: " + ", ".join(f"{n:g}" for n in missing)) if missing
                          else "Every number matches the company data"))
