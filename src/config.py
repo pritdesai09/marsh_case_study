@@ -9,8 +9,10 @@ STATIC_DIR = ROOT / "static"
 POLICY_DIR = ROOT / "data" / "policies"
 PROCESSED_DIR = ROOT / "data" / "processed"
 DEMO_DIR = ROOT / "demo"
-OUTPUT_DIR = ROOT / "outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Generated pitches, audit reports and upload jobs. On Azure, MARSH_DATA_DIR points at /home/data,
+# which survives restarts and redeploys (the code folder may not).
+OUTPUT_DIR = Path(os.environ["MARSH_DATA_DIR"]) / "outputs" if os.getenv("MARSH_DATA_DIR") else ROOT / "outputs"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 # Processed data files (built by scripts/build_fact_store.py)
